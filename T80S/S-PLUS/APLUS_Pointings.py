@@ -319,14 +319,14 @@ class PointingsMap(object):
         ax.set_ylabel("DEC [deg]",fontsize='xx-large')
 
 
-def check_inside_survey(ra,dec):
+def check_inside_survey(ra,dec,surveyLimits):
     '''Function to check whether a point is within the limits
     of J-PAS
 
     '''
 
     is_inside = False
-    for l in SurveyLimits:
+    for l in surveyLimits:
         if (l['ra_min'] <= ra <= l['ra_max']) and (l['dec_min'] <= dec <= l['dec_max']):
              is_inside = True
              break

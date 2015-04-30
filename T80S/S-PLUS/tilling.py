@@ -10,20 +10,58 @@ import sys,os
 import numpy as np
 from astropy import units as u
 from astropy.coordinates import SkyCoord
+from APLUS_Pointings import check_inside_survey
 
 def main(argv):
 
-    theta = 2.0 * np.pi /180. # FoV size in radians
+    theta = 1.42 * np.pi /180. # FoV size in radians
     a = 2. * np.tan(theta / 2.) # Size projected in the sky
 
     n = 0 # Zones in the sky (Dec) 0 = equator
 
     deltaN = 0.
 
-    splus = ''
-    script = ''
+    splusS = ''
+    scriptS = ''
 
-    NTile = 1
+    splusN = ''
+    scriptN = ''
+
+    NTileS = 0
+    NTileN = 0
+
+    splusLimits_S = [ {'ra_min' : 0.0*u.hourangle,
+                       'ra_max' : 4.0*u.hourangle,
+                       'dec_max' : -10.0*u.degree,
+                       'dec_min' : -45.0*u.degree},
+                      {'ra_min' : 21.5*u.hourangle,
+                       'ra_max' : 23.99*u.hourangle,
+                       'dec_max' : -10.0*u.degree,
+                       'dec_min' : -45.0*u.degree},
+                       {'ra_min' : 0.0*u.hourangle,
+                       'ra_max' : 6.0*u.hourangle,
+                       'dec_max' : -45.0*u.degree,
+                       'dec_min' : -75.0*u.degree},
+                      {'ra_min' : 20.0*u.hourangle,
+                       'ra_max' : 23.99*u.hourangle,
+                       'dec_max' : -45.0*u.degree,
+                       'dec_min' : -75.0*u.degree}
+                    ]
+
+    splusLimits_N = [ {'ra_min' : 10.*u.hourangle,
+                       'ra_max' : 13.5*u.hourangle,
+                       'dec_max' : 0.0*u.degree,
+                       'dec_min' : -25.0*u.degree}
+    ]
+
+    area = 0.
+
+    for reg in splusLimits_S:
+        area += ( (np.sin(reg['dec_max'].to(u.radian)) - np.sin(reg['dec_min'].to(u.radian)))*u.radian * (reg['ra_max'].to(u.radian) - reg['ra_min'].to(u.radian)) )
+
+    print 'Total area: %s'%area.to(u.degree**2)
+
+    #return 0
 
     while deltaN < 75.*np.pi/180.:
 
@@ -35,9 +73,20 @@ def main(argv):
         alpha = np.arange(0.,24.,dalpha)
 
         for a in alpha:
-            c = SkyCoord(ra=a*u.hourangle,
+            c1 = SkyCoord(ra=a*u.hourangle,
                          dec=-deltaN*u.radian,
                          frame='icrs')
+            c2 = SkyCoord(ra=a*u.hourangle,
+                         dec=-deltaN*u.radian,
+                         frame='icrs')
+
+            if check_inside_survey(c.ra,c.dec,splusLimits_S):
+                #print 'Adding tile@ %s...'%c.to_string('hmsdms',sep=':')
+                splusS.append(c.to_string('hmsdms',sep=':'))
+                scriptS+='get FoV(T80Cam) %s\nset color=red\n'%c.to_string('hmsdms',sep=':')
+                NTileS+=1
+
+            '''
             if c.dec > -10.*u.degree or c.dec < -70.*u.degree:
                 print 'Skipping tile@ %s...'%c.to_string('hmsdms',sep=':')
             elif c.dec > -18.*u.degree and c.ra < 180.*u.degree:
@@ -57,14 +106,15 @@ def main(argv):
                 splus += 'SPLUS%05i %s\n'%(NTile,c.to_string('hmsdms',sep=':'))
                 script+='get FoV(T80Cam) %s\nset color=red\n'%c.to_string('hmsdms',sep=':')
                 NTile+=1
+            '''
 
-        deltaN = (np.arctan(np.tan(deltaN + theta/2.)*np.cos(dalpha)) + theta/2.)
+        deltaN = (np.arctan(np.tan(deltaN + theta/2.)*np.cos(dalpha/2.)) + theta/2.)
 
-    fp = open('/Users/tiago/Dropbox/Documents/T80S/S-PLUS/script_splus_south.ajs','w')
+    fp = open(os.path.expanduser('~/Dropbox/Documents/T80S/S-PLUS/script_splus_south.ajs'),'w')
     fp.write(script)
     fp.close()
 
-    fp = open('/Users/tiago/Dropbox/Documents/T80S/S-PLUS/splus_tiles_south.txt','w')
+    fp = open(os.path.expanduser('~/Dropbox/Documents/T80S/S-PLUS/splus_tiles_south.txt'),'w')
     fp.write(splus)
     fp.close()
 
