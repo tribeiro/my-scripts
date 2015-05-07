@@ -21,6 +21,9 @@ from chimera.util.output import blue, green, red
 from chimera.core.site import datetimeFromJD
 from chimera.core.exceptions import ObjectNotFoundException
 
+import plotly.plotly as py
+from plotly.graph_objs import Data,Scatter,Figure
+
 ################################################################################
 
 currentFrame = 0
@@ -39,7 +42,9 @@ class MoniT (ChimeraCLI):
 
         '''
         Make intra/extra focal observations in a grid of alt/az.
-        ''
+        '''
+
+
         self.addHelpGroup("RUN", "Start/Stop/Info")
         self.addHelpGroup("TELESCOPE", "Telescope")
 
@@ -48,145 +53,113 @@ class MoniT (ChimeraCLI):
                            required=True,
                            help="Telescope instrument to be used. If blank, try to guess from chimera.config",
                            helpGroup="TELESCOPE")
+        self.addParameters(dict(name="utime", long="updatetime", type=float,
+                        help="How long it will wait before reading in new data (in seconds).",default=30.,
+                        metavar="utime"))
+        self.addParameters(dict(name="maxpoints", long="maxpoints", type=int,
+                        help="Maximum number of points to plot. Set to -1 for unlimited.",default=-1,
+                        metavar="maxpoints"))
+
     ############################################################################
 
     @action(help="Start monitoring temperature", helpGroup="RUN", actionGroup="RUN")
     def start(self, options):
 
-        filename = "$DATE-$TIME.fits"
+        x = [dt.datetime.now()]
+        sensors = self.telescope.getSensors()
 
-        site = self.site
+        tm1 = [sensors[1][1]]
+        tm2 = [sensors[2][1]]
+        tfr = [sensors[3][1]]
+        ttr = [sensors[4][1]]
 
-        dome = None
-        try:
-            dome = self.camera.getManager().getProxy("/Dome/0")
-        except ObjectNotFoundException:
-            pass
+        #print x[0],tm1[0]
 
-        @callback(self.localManager)
-        def exposeBegin(request):
-            global currentFrame, currentFrameExposeStart
-            currentFrameExposeStart = time.time()
-            currentFrame += 1
-            self.out(40 * "=")
-            self.out("[%03d/%03d] [%s]" %
-                     (currentFrame, options.frames, time.strftime("%c")))
-            self.out("exposing (%.3fs) ..." % request["exptime"], end="")
+        # Get credentials from plotly configfile.
+        #cr = py.get_credentials()
+        maxpoints = options.maxpoints
+        if maxpoints < 0:
+            maxpoints = None
 
-        @callback(self.localManager)
-        def exposeComplete(request, status):
-            global currentFrameExposeStart
-            if status == CameraStatus.OK:
-                self.out("OK (took %.3f s)" %
-                         (time.time() - currentFrameExposeStart))
+        trace1 = Scatter(x=[], y=[], name='M1 Temperature',
+                 stream=dict(token='jh645553at',maxpoints=options.maxpoints))
+        trace2 = Scatter(x=[], y=[], name='M2 Temperature',
+                 stream=dict(token='2scawy54a0',maxpoints=options.maxpoints))
+        trace3 = Scatter(x=[], y=[], name='Front Rod',
+                 stream=dict(token='xqevutbl2z',maxpoints=options.maxpoints))
+        trace4 = Scatter(x=[], y=[], name='Tube Rod',
+                 stream=dict(token='d6vddg44xl',maxpoints=options.maxpoints))
 
-        @callback(self.localManager)
-        def readoutBegin(request):
-            global currentFrameReadoutStart
-            currentFrameReadoutStart = time.time()
-            self.out("reading out and saving ...", end="")
+        fig = Figure(data=[trace1,trace2,trace3,trace4])
 
-        @callback(self.localManager)
-        def readoutComplete(image, status):
-            global currentFrame, currentFrameExposeStart, currentFrameReadoutStart
+        py.plot(fig)
 
-            if status == CameraStatus.OK:
-                self.out("OK (took %.3f s)" %
-                         (time.time() - currentFrameExposeStart))
+        s1 = py.Stream('2scawy54a0')
+        s2 = py.Stream('jh645553at')
+        s3 = py.Stream('xqevutbl2z')
+        s4 = py.Stream('d6vddg44xl')
 
-                self.out(" (%s) " % image.compressedFilename(), end="")
-                self.out("OK (took %.3f s)" %
-                         (time.time() - currentFrameReadoutStart))
-                self.out("[%03d/%03d] took %.3fs" % (currentFrame, options.frames,
-                                                     time.time() - currentFrameExposeStart))
+        s1.open()
+        s2.open()
+        s3.open()
+        s4.open()
 
-                if ds9:
-                    ds9.set("scale mode 99.5")
-                    ds9.displayImage(image)
+        s1.write(dict(x=x[-1],
+                      y=tm1[-1]
+                      ))
+        s2.write(dict(x=x[-1],
+                      y=tm2[-1]
+                      ))
+        s3.write(dict(x=x[-1],
+                      y=tfr[-1]
+                      ))
+        s4.write(dict(x=x[-1],
+                      y=ttr[-1]
+                      ))
 
-                image.close()
 
-        self.camera.exposeBegin += exposeBegin
-        self.camera.exposeComplete += exposeComplete
-        self.camera.readoutBegin += readoutBegin
-        self.camera.readoutComplete += readoutComplete
+        fp = open('temp-moni.txt','w')
 
-        if dome:
-            @callback(self.localManager)
-            def syncBegin():
-                self.out("=" * 40)
-                self.out("synchronizing dome slit ...", end="")
 
-            @callback(self.localManager)
-            def syncComplete():
-                self.out("OK")
+        for i in range(30):
 
-            dome.syncBegin += syncBegin
-            dome.syncComplete += syncComplete
+            time.sleep(options.utime)
 
-        gridAlt = np.arange(options.minalt,options.maxalt,options.stepalt)
-        gridAz  = np.arange(options.minaz,options.maxaz,options.stepaz)
+            x.append(dt.datetime.now())
+            sensors = self.telescope.getSensors()
 
-        global currentFrame
+            print sensors
+            tm1.append(sensors[1][1])
+            tm2.append(sensors[2][1])
+            tfr.append(sensors[3][1])
+            ttr.append(sensors[4][1])
+            fp.write('%s %f %f %f %f\n'%(x[-1],tm1[-1],tm2[-1],tfr[-1],ttr[-1]))
+            fp.flush()
 
-        for alt in gridAlt:
-            for az in gridAz:
-                altAz = Position.fromAltAz(Coord.fromD(alt),
-                                           Coord.fromD(az))
-                #self.out('alt/az: %s '%(altAz))
-                radec = site.altAzToRaDec(altAz)
-                self.out('alt/az: %s -> ra/dec: %s'%(altAz,radec))
-                self.telescope.slewToRaDec(radec)
+            if options.maxpoints > 0 and len(x) > options.maxpoints:
+                x.pop(0)
+                tm1.pop(0)
+                tm2.pop(0)
+                tfr.pop(0)
+                ttr.pop(0)
+            print x[-1],tm1[-1]
 
-                self.camera.expose(exptime=options.exptime,
-                                      frames=1,
-                                      interval=0.,
-                                      filename=filename,
-                                      type='OBJECT',
-                                      binning=None,
-                                      window=None,
-                                      shutter='OPEN',
-                                      compress=False,
-                                      wait_dome=True,
-                                      object_name='%s M2 Test Focus 0.0'%altAz)
+            s1.write(dict(x=x[-1],
+                          y=tm1[-1]
+                          ))
+            s2.write(dict(x=x[-1],
+                          y=tm2[-1]
+                          ))
+            s3.write(dict(x=x[-1],
+                          y=tfr[-1]
+                          ))
+            s4.write(dict(x=x[-1],
+                          y=ttr[-1]
+                          ))
 
-                currentFrame = 0
+        return 0
 
-                self.focuser.moveOut(options.stepfocus)
 
-                self.camera.expose(exptime=options.exptime,
-                                      frames=1,
-                                      interval=0.,
-                                      filename=filename,
-                                      type='OBJECT',
-                                      binning=None,
-                                      window=None,
-                                      shutter='OPEN',
-                                      compress=False,
-                                      wait_dome=True,
-                                      object_name='%s M2 Test Focus +%i'%(altAz,options.stepfocus))
-
-                currentFrame = 0
-
-                self.focuser.moveIn(options.stepfocus*2.)
-
-                self.camera.expose(exptime=options.exptime,
-                                      frames=1,
-                                      interval=0.,
-                                      filename=filename,
-                                      type='OBJECT',
-                                      binning=None,
-                                      window=None,
-                                      shutter='OPEN',
-                                      compress=False,
-                                      wait_dome=True,
-                                      object_name='%s M2 Test Focus -%i'%(altAz,options.stepfocus))
-
-                currentFrame = 0
-
-                self.focuser.moveOut(options.stepfocus)
-
-        #self.wait(abort=True)
 
 ################################################################################
 def main():
