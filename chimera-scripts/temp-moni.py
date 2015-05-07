@@ -23,6 +23,7 @@ from chimera.core.exceptions import ObjectNotFoundException
 
 import plotly.plotly as py
 from plotly.graph_objs import Data,Scatter,Figure
+import plotly.tools as tls
 
 ################################################################################
 
@@ -60,6 +61,54 @@ class MoniT (ChimeraCLI):
                         help="Maximum number of points to plot. Set to -1 for unlimited.",default=-1,
                         metavar="maxpoints"))
 
+        self.stream_ids = tls.get_credentials_file()['stream_ids']
+        self._ns = 4 # number of sensors
+        self._sindex = [1,2,3,4] # sensor index
+        self.streams = [None,None,None,None]
+        self.traces = [None,None,None,None]
+        self.tlabels = ['M1 Temperature','M2 Temperature','Front Rod','Tube Rod']
+
+        if len(self.stream_ids) < 4:
+            raise IOError('At least 4 PlotLy tokens are required to stream the data. Add them to your credentials, see https://plot.ly/python/streaming-tutorial/')
+
+    ############################################################################
+
+    def initLy(self):
+
+        for i in range(len(self.streams)):
+            # Configure streams
+            self.streams[i] = py.Stream(self.stream_ids[i])
+
+            # Initialize traces
+            self.traces[i] = Scatter(x=[], y=[], name=self.tlabels[i],
+                     stream=dict(token=self.stream_ids[i]))
+
+        self.data = Data(self.traces)
+
+        self.fig = Figure(data=self.data)
+
+        now = dt.datetime.now()
+
+        self.year,self.month,self.day = now.year,now.month,now.day
+
+        self.unique_url = py.plot(fig,filename='T80S_TM_%04i%02i%02i'%(self.year,
+                                                                       self.month,
+                                                                       self.day)) #,fileopt='extended')
+
+        self.openStreams()
+
+    ############################################################################
+
+    def openStreams(self):
+        for i in range(len(self.streams)):
+            self.streams[i].open()
+
+    ############################################################################
+
+    def closeStreams(self):
+        for i in range(len(self.streams)):
+            self.streams[i].close()
+
     ############################################################################
 
     @action(help="Start monitoring temperature", helpGroup="RUN", actionGroup="RUN")
@@ -92,7 +141,7 @@ class MoniT (ChimeraCLI):
 
         fig = Figure(data=[trace1,trace2,trace3,trace4])
 
-        py.plot(fig)
+        py.plot(fig,filename='T80S_TM') #,fileopt='extended')
 
         s1 = py.Stream('2scawy54a0')
         s2 = py.Stream('jh645553at')
@@ -121,12 +170,15 @@ class MoniT (ChimeraCLI):
         fp = open('temp-moni.txt','w')
 
 
-        for i in range(30):
+        while True:
 
             time.sleep(options.utime)
 
             x.append(dt.datetime.now())
-            sensors = self.telescope.getSensors()
+            sensors = None
+            while not sensors:
+                sensors = self.telescope.getSensors()
+                time.sleep(0.5)
 
             print sensors
             tm1.append(sensors[1][1])

@@ -96,6 +96,11 @@ class M2Test (ChimeraCLI):
         self.addParameters(dict(name="frames", long="frames", type=int,
                         help="Number of frames per position",default=1,
                         metavar="frames"))
+        self.addParameters(dict(name="dryrun",
+                                long="dryrun",
+                                type=ParameterType.BOOLEAN,
+                                default=False,
+                                help="Just print coordinates."))
 
     ############################################################################
 
@@ -185,6 +190,9 @@ class M2Test (ChimeraCLI):
                 #self.out('alt/az: %s '%(altAz))
                 radec = site.altAzToRaDec(altAz)
                 self.out('alt/az: %s -> ra/dec: %s'%(altAz,radec))
+                if options.dryrun:
+                    continue
+
                 self.telescope.slewToRaDec(radec)
 
                 self.camera.expose(exptime=options.exptime,
