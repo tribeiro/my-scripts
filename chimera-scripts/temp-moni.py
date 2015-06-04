@@ -61,7 +61,7 @@ class MoniT(ChimeraCLI):
 
         self.stream_ids = tls.get_credentials_file()['stream_ids']
         self._ns = 4  # number of sensors
-        self._sindex = [1, 2, 3, 4]  # sensor index
+        self._sindex = [2, 4, 6, 8]  # sensor index
         self.streams = [None, None, None, None]
         self.traces = [None, None, None, None]
         self.tlabels = ['M1 Temperature', 'M2 Temperature', 'Front Rod', 'Tube Rod']
@@ -114,6 +114,7 @@ class MoniT(ChimeraCLI):
     def getData(self):
 
         sensors = self.telescope.getSensors()
+        #print sensors
         data = [dt.datetime.now()]
         for i in range(self._ns):
             data.append(sensors[self._sindex[i]][1])

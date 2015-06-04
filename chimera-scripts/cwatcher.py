@@ -30,13 +30,6 @@ class ChimeraWatcher():
         self.ip='127.0.0.1'
         self.port=9999
         self.timeout=60
-        self.t = telnetlib.Telnet(self.ip, self.port, self.timeout)
-        print 'Going Online...'
-        self.t.write('status_online \r\n')
-        if self.t.expect(['SUCCESS'], timeout=5)[1]:
-            print 'SUCCESS'
-        else:
-            print 'TIMEOUT'
 
     ############################################################################
 
@@ -55,20 +48,30 @@ class ChimeraWatcher():
             while True:
 
                 print 'Sleeping...'
-                self.t.write('msg Tiago_Ribeiro Sleeping...')
-                if self.t.expect(['SUCCESS'], timeout=5)[1]:
-                    print 'SUCCESS'
-                else:
-                    print 'TIMEOUT'
+                # self.t.write('msg Tiago_Ribeiro Sleeping...')
+                # if self.t.expect(['SUCCESS'], timeout=5)[1]:
+                #     print 'SUCCESS'
+                # else:
+                #     print 'TIMEOUT'
 
                 time.sleep(self.sleep)
 
                 print 'Waking up...'
-                self.t.write('msg Tiago_Ribeiro Waking up...')
+                self.t = telnetlib.Telnet(self.ip, self.port, self.timeout)
+                print 'Going Online...'
+                self.t.write('status_online \r\n')
                 if self.t.expect(['SUCCESS'], timeout=5)[1]:
                     print 'SUCCESS'
                 else:
                     print 'TIMEOUT'
+
+                # self.t.write('msg Tiago_Ribeiro Waking up...\r\n')
+                # if self.t.expect(['SUCCESS'], timeout=5)[1]:
+                #     print 'SUCCESS'
+                # else:
+                #     print 'TIMEOUT'
+                #
+                # continue
 
                 fp = open(self.chimeralog,'r')
 
@@ -78,22 +81,32 @@ class ChimeraWatcher():
                 for line in fp.readlines():
                     if not 'DEBUG' in line and not 'INFO' in line:
                         print line[:-1]
-                        self.t.write('msg Tiago_Ribeiro %s'%(line[:-1]))
+                        self.t.write('msg Tiago_Ribeiro %s \r\n'%(line[:-1]))
                         if self.t.expect(['SUCCESS'], timeout=5)[1]:
                             print 'SUCCESS'
                         else:
                             print 'TIMEOUT'
-                    else:
-                        print 'DEBUG or INFO msg...'
-                        self.t.write('msg Tiago_Ribeiro [DEBUG: %s]'%(line[:-1]))
-                        if self.t.expect(['SUCCESS'], timeout=5)[1]:
-                            print 'SUCCESS'
-                        else:
-                            print 'TIMEOUT'
+
+
+                # if len(msg) > 0:
+                #     print msg
+                #     self.t.write('msg Tiago_Ribeiro %s \r\n'%(msg))
+                #     if self.t.expect(['SUCCESS'], timeout=5)[1]:
+                #         print 'SUCCESS'
+                #     else:
+                #         print 'TIMEOUT'
+                # else:
+                #     self.t.write('msg Tiago_Ribeiro No events to report... \r\n')
+                #     if self.t.expect(['SUCCESS'], timeout=5)[1]:
+                #         print 'SUCCESS'
+                #     else:
+                #         print 'TIMEOUT'
+
 
                 pos = fp.tell()
 
                 fp.close()
+                self.t.close()
         except:
             self.t.close()
             return -1
