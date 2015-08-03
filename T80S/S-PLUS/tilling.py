@@ -49,7 +49,7 @@ def main(argv):
                        'ra_max' : 23.99*u.hourangle,
                        'dec_max' : -45.0*u.degree,
                        'dec_min' : -80.0*u.degree}
-                    ]
+    ]
 
     splusLimits_N = [ {'ra_min' : 10.*u.hourangle,
                        'ra_max' : 13.5*u.hourangle,
