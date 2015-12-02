@@ -89,23 +89,28 @@ class ChimeraMkgrid (ChimeraCLI):
                            help="Focuser instrument to be used")
 
         self.addHelpGroup("COORDS", "Coordinates")
-        self.addParameters(dict(name="ha_start",
+        self.addParameters(dict(name="alt_min",
                                 type="string",
                                 helpGroup="COORDS",
-                                help="Hour Angle to start."),
-                           dict(name="ha_end",
+                                help="Minimum altitude of the grid."),
+                           dict(name="ha_step",
                                 type="string",
                                 helpGroup="COORDS",
-                                help="Hour Angle to end."),
-                           dict(name="nha",
-                                type="int",
-                                helpGroup="COORDS",
-                                help="Number of points in Hour angle."),
+                                help="Hour angle grid step (in hours, at equator)."),
                            dict(
-                               name="dec",
+                               name="dec_start",
                                type="string",
                                helpGroup="COORDS",
                                help="Declination."),
+                           dict(
+                               name="dec_end",
+                               type="string",
+                               helpGroup="COORDS",
+                               help="Declination."),
+                           dict(name="dec_step",
+                                type="string",
+                                helpGroup="COORDS",
+                                help="Declination grid step (in degrees)."),
                            dict(
                                name="epoch",
                                type="string",
@@ -222,14 +227,44 @@ class ChimeraMkgrid (ChimeraCLI):
             dome.syncBegin += syncBegin
             dome.syncComplete += syncComplete
 
-        ha_start = Coord.fromH(options.ha_start)
-        ha_end = Coord.fromH(options.ha_end)
+        dec_start = Coord.fromDMS(options.dec_start)
+        dec_end = Coord.fromDMS(options.dec_end)
+        dec_step = Coord.fromDMS(options.dec_step)
+        alt0 = Coord.fromDMS(options.alt_min)
+        ha_step = np.float(Coord.fromHMS(options.ha_step).toH())
 
-        gridHA  = np.linspace(ha_start.H,ha_end.H,options.nha)
+        total_pts = 0
+        for dec in np.arange(dec_start.D,dec_end.D,dec_step.D):
+            dd = Coord.fromD(dec)
 
-        lst = site.LST()
-        #
-        self.out('Current LST: %s'%lst)
+            # print alt0.toD(),Coord.fromD(site["latitude"]).toD(), (dd.toD()),np.float( ( alt0.toD()+Coord.fromD(site["latitude"]).toD() ) / (90. + dd.toD()) )
+            # ha0 = Coord.fromR(np.abs( np.arccos( np.float( ( alt0.toD()+Coord.fromD(site["latitude"]).toD() ) / (90. + dd.toD()) ) ) ) )
+
+            ha0 = Coord.fromD(alt0.D-np.abs(Coord.fromD(site["latitude"]).toD()-dd.toD()))
+
+            step = ha_step/np.abs(np.cos( np.float(dd.toD()-Coord.fromD(site["latitude"]).toD() )*np.pi/180.))
+            npts = 2*ha0.toH()/step
+            npts = int(npts) if int(npts) > 1 else 1
+            total_pts+=npts
+            # self.out("HA: %s"%ha0.toHMS())
+            # self.out('Step: %f / %f / %i cos(%f) = %f'%(ha_step,step,npts,dd.toD()-Coord.fromD(site["latitude"]).toD(),
+            #                                             np.cos( np.float(dd.toD()-Coord.fromD(site["latitude"]).toD() )*np.pi/180.)))
+
+            if npts > 1:
+                ha_grid = np.linspace(-np.float(ha0.toH()),np.float(ha0.toH()),npts)
+            else:
+                ha_grid = [0.]
+            # if len(ha_grid) < 3:
+            #     self.out('HA grid @ dec %s too small. Skipping...'%dd.toDMS())
+            #     continue
+
+            for HA in ha_grid:
+                self.out('Ha/Dec: %s %s'%(Coord.fromH(HA).toHMS(),
+                                          dd.toDMS()))
+            # self.out("")
+
+        self.out('Total pointings: %i'%total_pts)
+        return
 
         for HA in gridHA:
 

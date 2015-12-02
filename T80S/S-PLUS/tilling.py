@@ -27,8 +27,12 @@ def main(argv):
     splusN = []
     scriptN = ''
 
+    s82 = []
+    scriptS82 = ''
+
     NTileS = 0
     NTileN = 0
+    NTilesS82 = 0
 
     splusLimits_S = [ {'ra_min' : 0.0*u.hourangle,
                        'ra_max' : 4.0*u.hourangle,
@@ -65,6 +69,16 @@ def main(argv):
                        'dec_min' : 15.0*u.degree}
     ]
 
+    stripe82 = [{'ra_min' : 20*u.hourangle,
+                 'ra_max' : 24*u.hourangle,
+                 'dec_max' : +2.*u.degree,
+                 'dec_min' : -2.*u.degree} ,
+                {'ra_min' : 0.*u.hourangle,
+                 'ra_max' : 4*u.hourangle,
+                 'dec_max' : +2.*u.degree,
+                 'dec_min' : -2.*u.degree} ,
+                ]
+
     area = 0.
 
     for reg in splusLimits_S:
@@ -75,10 +89,16 @@ def main(argv):
 
     print 'Total area: %s'%area.to(u.degree**2)
 
-    #return 0
+    area = 0.
 
-    while deltaN < 85.*np.pi/180.:
+    for reg in stripe82:
+        area += np.abs( (np.sin(reg['dec_max'].to(u.radian)) - np.sin(reg['dec_min'].to(u.radian)))*u.radian * (reg['ra_max'].to(u.radian) - reg['ra_min'].to(u.radian)) )
 
+    print 'Stripe 82 area: %s'%area.to(u.degree**2)
+    # return 0
+
+    # while deltaN < 10.*np.pi/180.:
+    for deltaN in [0.70*np.pi/180.]:
         delta0 = deltaN - theta/2.
         mn = np.floor( 2. * np.pi * np.cos(delta0) / theta ) + 1.0 # number of cells on zone n
 
@@ -116,6 +136,17 @@ def main(argv):
                 scriptN+='get FoV(T80Cam) %s\nset color=blue\n'%c2.to_string('hmsdms',sep=':')
                 NTileN+=1
 
+            if check_inside_survey(c1.ra,c1.dec,stripe82):
+                s82.append(c1.to_string('hmsdms',sep=':'))
+                scriptS82+='get FoV(T80Cam) %s\nset color=blue\n'%c1.to_string('hmsdms',sep=':')
+                NTilesS82+=1
+
+            # if c2.dec.to(u.radian).value > theta and check_inside_survey(c2.ra,c2.dec,stripe82):
+            if check_inside_survey(c2.ra,c2.dec,stripe82):
+                s82.append(c2.to_string('hmsdms',sep=':'))
+                scriptS82+='get FoV(T80Cam) %s\nset color=blue\n'%c2.to_string('hmsdms',sep=':')
+                NTilesS82+=1
+
 
             '''
             if c.dec > -10.*u.degree or c.dec < -70.*u.degree:
@@ -149,6 +180,10 @@ def main(argv):
     fp.write(scriptN)
     fp.close()
 
+    fp = open(os.path.expanduser('~/Dropbox/Documents/T80S/S-PLUS/script_stripe82.ajs'),'w')
+    fp.write(scriptS82)
+    fp.close()
+
     fp = open(os.path.expanduser('~/Dropbox/Documents/T80S/S-PLUS/splus_tiles.txt'),'w')
     NTile = 1
 
@@ -160,6 +195,15 @@ def main(argv):
         fp.write('SPLUS_%04i %s\n'%(NTile,tile))
         NTile+=1
 
+
+    fp.close()
+
+    fp = open(os.path.expanduser('~/Dropbox/Documents/T80S/S-PLUS/stripe82_tiles.txt'),'w')
+    NTile = 1
+
+    for tile in s82:
+        fp.write('STRIPE82_%04i %s\n'%(NTile,tile))
+        NTile+=1
 
     fp.close()
 
