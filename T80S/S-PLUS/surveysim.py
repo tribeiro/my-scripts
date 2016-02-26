@@ -25,21 +25,30 @@ from dateutil import tz
 from chimera.core.manager import Manager
 from t80sched.scheduler.model import Session, ObsBlock
 import logging
+import subprocess
 
 logging.basicConfig(format='%(levelname)s:%(asctime)s::%(message)s',
                     level=logging.DEBUG)
 
 def main(argv):
 
+    '''
+    This script is designed for testing scheduling algorithms on chimera. It will, in its task, use the standard
+    databases which may cause loss of information. When simulating surveys, use a separate chimera instance far away
+    from any instance used on real case scenarios.
+
+    :param argv:
+    :return:
+    '''
 
     manager = Manager()
-    site = manager.getProxy('127.0.0.1:7667/Site/0')
+    site = manager.getProxy('127.0.0.1:7666/Site/0')
     surveyDay = datetime(2015,1,1).replace(tzinfo=tz.tzutc())
 
     cmdlist = ['chimera-t80sched --makeQ --pid SPLUS --jdstart %f --jdend %f',
                'chimera-t80sched --makeQ --pid EXTMONI --jdstart %f --jdend %f']
 
-    for i in range(10):
+    for i in range(2):
 
         sunset = site.sunset_twilight_end(surveyDay)
         nigthStart = site.JD(sunset)
@@ -57,6 +66,8 @@ def main(argv):
 
         for cmd in cmdlist:
             logging.debug(cmd% (nigthStart,nigthEnd))
+            subprocess.check_call([cmd% (nigthStart,nigthEnd)],
+                                  shell=True)
 
         surveyDay+=timedelta(days=1)
 
