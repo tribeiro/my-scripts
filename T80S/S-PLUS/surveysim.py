@@ -66,8 +66,8 @@ def main(argv):
 
         for cmd in cmdlist:
             logging.debug(cmd% (nigthStart,nigthEnd))
-            subprocess.check_call([cmd% (nigthStart,nigthEnd)],
-                                  shell=True)
+            # subprocess.check_call([cmd% (nigthStart,nigthEnd)],
+            #                       shell=True)
 
         surveyDay+=timedelta(days=1)
 

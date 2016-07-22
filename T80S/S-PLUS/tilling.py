@@ -34,39 +34,52 @@ def main(argv):
     NTileN = 0
     NTilesS82 = 0
 
-    splusLimits_S = [ {'ra_min' : 0.0*u.hourangle,
-                       'ra_max' : 4.0*u.hourangle,
-                       'dec_max' : -10.0*u.degree,
+    splusLimits_S = [ {'ra_min' : 21.7*u.hourangle,
+                       'ra_max' : 23.99*u.hourangle,
+                       'dec_max' :   1.0*u.degree,
+                       'dec_min' : -15.0*u.degree},
+
+                      {'ra_min' : 21.0*u.hourangle,
+                       'ra_max' : 23.99*u.hourangle,
+                       'dec_max' : -15.0*u.degree,
                        'dec_min' : -30.0*u.degree},
 
-                      {'ra_min' : 21.5*u.hourangle,
-                       'ra_max' : 23.99*u.hourangle,
-                       'dec_max' : -10.0*u.degree,
-                       'dec_min' : -45.0*u.degree},
+                        {'ra_min' : 0.0*u.hourangle,
+                       'ra_max' : 2.*u.hourangle,
+                       'dec_max' : -15.0*u.degree,
+                       'dec_min' : -30.0*u.degree},
 
                        {'ra_min' : 0.0*u.hourangle,
-                       'ra_max' : 6.0*u.hourangle,
+                       'ra_max' : 2.7*u.hourangle,
                        'dec_max' : -30.0*u.degree,
-                       'dec_min' : -80.0*u.degree},
+                       'dec_min' : -60.0*u.degree},
 
                       {'ra_min' : 20.0*u.hourangle,
                        'ra_max' : 23.99*u.hourangle,
-                       'dec_max' : -45.0*u.degree,
+                       'dec_max' : -30.0*u.degree,
+                       'dec_min' : -60.0*u.degree},
+
+                       {'ra_min' : 0.0*u.hourangle,
+                       'ra_max' : 5.4*u.hourangle,
+                       'dec_max' : -60.0*u.degree,
+                       'dec_min' : -80.0*u.degree},
+
+                      {'ra_min' : 18.6*u.hourangle,
+                       'ra_max' : 23.99*u.hourangle,
+                       'dec_max' : -60.0*u.degree,
                        'dec_min' : -80.0*u.degree}
+
     ]
 
     splusLimits_N = [ {'ra_min' : 10.*u.hourangle,
-                       'ra_max' : 13.5*u.hourangle,
-                       'dec_max' : 0.0*u.degree,
+                       'ra_max' : 12.*u.hourangle,
+                       'dec_max' :  20.0*u.degree,
                        'dec_min' : -25.0*u.degree},
-                      {'ra_min' : 10.5*u.hourangle,
-                       'ra_max' : 14.5*u.hourangle,
-                       'dec_max' : 15.0*u.degree,
-                       'dec_min' : 00.0*u.degree},
+
                       {'ra_min' : 12.0*u.hourangle,
-                       'ra_max' : 14.5*u.hourangle,
-                       'dec_max' : 30.0*u.degree,
-                       'dec_min' : 15.0*u.degree}
+                       'ra_max' : 14.0*u.hourangle,
+                       'dec_max' :  30.0*u.degree,
+                       'dec_min' : -15.0*u.degree}
     ]
 
     stripe82 = [{'ra_min' : 20*u.hourangle,
@@ -97,14 +110,15 @@ def main(argv):
     print 'Stripe 82 area: %s'%area.to(u.degree**2)
     # return 0
 
-    # while deltaN < 10.*np.pi/180.:
-    for deltaN in [0.70*np.pi/180.]:
+    while deltaN < 85.*np.pi/180.:
+    # for deltaN in [0.70*np.pi/180.]:
         delta0 = deltaN - theta/2.
         mn = np.floor( 2. * np.pi * np.cos(delta0) / theta ) + 1.0 # number of cells on zone n
 
         dalpha = 24. / mn
 
         alpha = np.arange(0.,24.,dalpha)
+        print '->',deltaN,85.*np.pi/180.
 
         for a in alpha:
             c1 = SkyCoord(ra=a*u.hourangle,
@@ -116,23 +130,26 @@ def main(argv):
 
             if check_inside_survey(c1.ra,c1.dec,splusLimits_S):
                 #print 'Adding tile@ %s...'%c.to_string('hmsdms',sep=':')
-                splusS.append(c1.to_string('hmsdms',sep=':'))
+                # splusS.append(c1.to_string('hmsdms',sep=':'))
+                splusS.append(c1.to_string())
                 scriptS+='get FoV(T80Cam) %s\nset color=red\n'%c1.to_string('hmsdms',sep=':')
                 NTileS+=1
 
             if check_inside_survey(c2.ra,c2.dec,splusLimits_S):
                 #print 'Adding tile@ %s...'%c.to_string('hmsdms',sep=':')
-                splusS.append(c2.to_string('hmsdms',sep=':'))
+                # splusS.append(c2.to_string('hmsdms',sep=':'))
+                splusS.append(c2.to_string())
                 scriptS+='get FoV(T80Cam) %s\nset color=red\n'%c2.to_string('hmsdms',sep=':')
                 NTileS+=1
 
             if check_inside_survey(c1.ra,c1.dec,splusLimits_N):
-                splusN.append(c1.to_string('hmsdms',sep=':'))
+                # splusN.append(c1.to_string('hmsdms',sep=':'))
+                splusN.append(c1.to_string())
                 scriptN+='get FoV(T80Cam) %s\nset color=blue\n'%c1.to_string('hmsdms',sep=':')
                 NTileN+=1
 
             if check_inside_survey(c2.ra,c2.dec,splusLimits_N):
-                splusN.append(c2.to_string('hmsdms',sep=':'))
+                splusN.append(c2.to_string())
                 scriptN+='get FoV(T80Cam) %s\nset color=blue\n'%c2.to_string('hmsdms',sep=':')
                 NTileN+=1
 
@@ -170,21 +187,26 @@ def main(argv):
                 NTile+=1
             '''
 
-        deltaN = (np.arctan(np.tan(deltaN + theta/2.)*np.cos(dalpha/2.)) + theta/2.)
+        newdeltaN = (np.arctan(np.tan(deltaN + theta/2.)*np.cos(dalpha/2.)) + theta/2.)
+        if newdeltaN < deltaN:
+            break
+        else:
+            deltaN = newdeltaN
+        # deltaN = (np.arctan(np.tan(deltaN + theta/2.)*np.cos(dalpha/2.)) + theta/2.)
 
-    fp = open(os.path.expanduser('~/Dropbox/Documents/T80S/S-PLUS/script_splus_south.ajs'),'w')
-    fp.write(scriptS)
-    fp.close()
+    # fp = open(os.path.expanduser('~/iCloud/DropboxDocuments/T80S/S-PLUS/script_splus_south.ajs'),'w')
+    # fp.write(scriptS)
+    # fp.close()
+    #
+    # fp = open(os.path.expanduser('~/iCloud/DropboxDocuments/T80S/S-PLUS/script_splus_north.ajs'),'w')
+    # fp.write(scriptN)
+    # fp.close()
+    #
+    # fp = open(os.path.expanduser('~/iCloud/DropboxDocuments/T80S/S-PLUS/script_stripe82.ajs'),'w')
+    # fp.write(scriptS82)
+    # fp.close()
 
-    fp = open(os.path.expanduser('~/Dropbox/Documents/T80S/S-PLUS/script_splus_north.ajs'),'w')
-    fp.write(scriptN)
-    fp.close()
-
-    fp = open(os.path.expanduser('~/Dropbox/Documents/T80S/S-PLUS/script_stripe82.ajs'),'w')
-    fp.write(scriptS82)
-    fp.close()
-
-    fp = open(os.path.expanduser('~/Dropbox/Documents/T80S/S-PLUS/splus_tiles.txt'),'w')
+    fp = open(os.path.expanduser('~/iCloud/Dropbox/Documents/t80s/s-plus/splus_tiles.txt'),'w')
     NTile = 1
 
     for tile in splusS:
@@ -198,14 +220,14 @@ def main(argv):
 
     fp.close()
 
-    fp = open(os.path.expanduser('~/Dropbox/Documents/T80S/S-PLUS/stripe82_tiles.txt'),'w')
-    NTile = 1
-
-    for tile in s82:
-        fp.write('STRIPE82_%04i %s\n'%(NTile,tile))
-        NTile+=1
-
-    fp.close()
+    # fp = open(os.path.expanduser('~/iCloud/DropboxDocuments/T80S/S-PLUS/stripe82_tiles.txt'),'w')
+    # NTile = 1
+    #
+    # for tile in s82:
+    #     fp.write('STRIPE82_%04i %s\n'%(NTile,tile))
+    #     NTile+=1
+    #
+    # fp.close()
 
     return 0
 
