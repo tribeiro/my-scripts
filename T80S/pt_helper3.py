@@ -49,6 +49,8 @@ print d_alt*180./np.pi,d_ah
 
 alt_arr = np.array([])
 az_arr = np.array([])
+lane_arr = np.array([])
+dec_lane = 1
 
 for i in range(len(dec_grid)):
     dec=dec_grid[i]
@@ -98,11 +100,14 @@ for i in range(len(dec_grid)):
     else:
         az_arr = np.append(az_arr,[np.pi,])
 
-
     az_arr = np.append(az_arr,2.*np.pi-az[mask][::-1])
 
+    lane_arr = np.append(lane_arr,np.zeros(len(az[mask])*2+1)+dec_lane)
+    dec_lane+=1
+
 print "Total number of pointings: %i" % len(az_arr)
-map_points = np.array([az_arr*180./np.pi,alt_arr*180./np.pi]).T
+print alt_arr.shape,az_arr.shape,lane_arr.shape
+map_points = np.array([az_arr*180./np.pi,alt_arr*180./np.pi,lane_arr]).T
 
 if False:
     plt.clf()
@@ -189,28 +194,40 @@ i = skip
 dry = True
 star_name = ''
 
+ilane = 0
 for point in map_points[skip:]:
     i += 1
-    alt, az = point[1], point[0]
     # print('Point: # %i (alt, az): %.2f %2f' % (i, alt, az))
     # If a star name is needed to the method of pointing model, get the nearest star from the desired point.
+    if ilane != point[2]:
+        ilane = point[2]
+        print("Doing reference pointing...")
+        star, distance = get_nearby_star(star_catalog,77. * np.pi / 180., 278. * np.pi / 180.)
+        alt, az = star.alt.real * 180 / np.pi, star.az.real * 180 / np.pi
+        os.system('echo %s | pbcopy' % star.name)
+        s = raw_input('Point Telescope to star %s (ra, dec, alt, az, dist): %s, %s, %s, %s, %.2f and press ENTER to verify' % (
+            star.name, star.ra, star.dec, star.alt, star.az, distance))
+
+    s = 'S'
+    alt, az = point[1], point[0]
     if use_starname:
         star, distance = get_nearby_star(star_catalog, alt * np.pi / 180, az * np.pi / 180)
         alt, az = star.alt.real * 180 / np.pi, star.az.real * 180 / np.pi
         os.system('echo %s | pbcopy' % star.name)
-        s = 'S'
+        # s = 'S'
         if star_name == star.name:
             print 'WARNING: Repeating last star %s' % star_name
 
         if not dry:
-            s = raw_input('Point Telescope to star %s (ra, dec, alt, az, dist): %s, %s, %s, %s, %.2f and press ENTER to verify S to skip' % (
+            s = raw_input('Point Telescope to star %s (ra, dec, alt, az, dist): %s, %s, %s, %s, %.2f and press ENTER to verify, S to skip or R for reference' % (
                 star.name, star.ra, star.dec, star.alt, star.az, distance))
         else:
-            print 'Point Telescope to star %s (ra, dec, alt, az, dist): %s, %s, %s, %s, %.2f and press ENTER to verify S to skip' % (
+            print 'Point Telescope to star %s (ra, dec, alt, az, dist): %s, %s, %s, %s, %.2f' % (
                 star.name, star.ra, star.dec, star.alt, star.az, distance)
 
         if s == 'S':
             continue
+
     else:
         print('Pointing telescope...')
         # os.system('%s chimera-tel --slew --alt %.2f --az %2.f' % (chimera_prefix, alt, az))
@@ -219,12 +236,20 @@ for point in map_points[skip:]:
         ax.scatter(point[0] * np.pi / 180, 90 - point[1], color='b', s=10)
         ax.set_title("%d of %d done" % (i - 1, pointings), va='bottom')
         plt.draw()
-    print('Verifying pointing...')
-    print('chimera-pverify --here')
-    # os.system('%s chimera-pverify --here' % chimera_prefix)
-    print '%s chimera-pverify --here' % chimera_prefix
+    # print('Verifying pointing...')
+    # print('chimera-pverify --here')
+    # # os.system('%s chimera-pverify --here' % chimera_prefix)
+    # print '%s chimera-pverify --here' % chimera_prefix
     print('\a')  # Ring a bell when done.
-    if not dry:
+    if not dry and s == 'R':
+        print("Doing reference pointing...")
+        star, distance = get_nearby_star(star_catalog,77. * np.pi / 180., 278. * np.pi / 180.)
+        alt, az = star.alt.real * 180 / np.pi, star.az.real * 180 / np.pi
+        os.system('echo %s | pbcopy' % star.name)
+        s = raw_input('Point Telescope to star %s (ra, dec, alt, az, dist): %s, %s, %s, %s, %.2f and press ENTER to verify' % (
+            star.name, star.ra, star.dec, star.alt, star.az, distance))
+
+    elif not dry:
         raw_input('Press ENTER for next pointing.')
 
 plt.show()
