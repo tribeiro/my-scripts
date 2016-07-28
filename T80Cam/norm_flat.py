@@ -46,6 +46,13 @@ class NormSection(OverscanCorr):
         newdata /= np.median(self.ccd.data)
         self.ccd.data = newdata
 
+    def get_avg(self, filename):
+        level = np.zeros((self._parallelports,self._serialports))
+        for subarr in self._ccdsections:
+            level[subarr.parallel_index][subarr.serial_index] = np.median(self.ccd.data[subarr.section])
+        np.save(level,filename)
+        return
+
     def norm_section(self):
         norm_img = np.zeros_like(self.ccd.data,dtype=np.float) + 1
 
@@ -136,9 +143,9 @@ def main(argv):
 
     # overcorr.show()
 
-    logging.info('Applying overscan...')
-
-    overcorr.overscan()
+    # logging.info('Applying overscan...')
+    #
+    # overcorr.overscan()
 
     # logging.info('Gain...')
     #
@@ -148,15 +155,15 @@ def main(argv):
     #
     # overcorr.norm()
 
-    logging.info('Trimming...')
-
-    ccdout = overcorr.trim()
+    # logging.info('Trimming...')
+    #
+    # ccdout = overcorr.trim()
 
     if opt.output is not None:
         logging.info('Saving result to %s...' % opt.output)
 
-        ccdout.write(opt.output)
-
+        # ccdout.write(opt.output)
+        overcorr.get_avg(opt.output.replace('.fits','.npy'))
 
 if __name__ == '__main__':
     main(sys.argv)
