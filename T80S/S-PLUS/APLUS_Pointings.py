@@ -333,6 +333,14 @@ def check_inside_survey(ra,dec,surveyLimits):
 
     return is_inside
 
+def check_inside_survey_gal(l,b,surveyLimits):
+    is_inside = False
+    for reg in surveyLimits:
+        if (reg['l_min'] <= l <= reg['l_max']) and (reg['b_min'] <= b <= reg['b_max']):
+            is_inside =True
+            break
+    return is_inside
+
 def measure_jpas_area(npoints=1e7):
     '''Monte Carlo method to estimate the total area covered by J-PAS.
 

@@ -28,7 +28,7 @@ def main(argv):
     opt, args = parser.parse_args(argv)
 
     splist = np.loadtxt(opt.speclist,
-                        dtype='S')
+                        dtype='S',ndmin=1)
     flist = np.loadtxt(opt.filterlist,
                         dtype='S')
 
