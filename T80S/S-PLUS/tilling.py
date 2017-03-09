@@ -160,7 +160,7 @@ def main(argv):
     Galactic = [{'l_min' : 240.,
                  'l_max' : 300.,
                  'b_min' : -20.,
-                 'b_max' : 20.}]
+                 'b_max' : +20.}]
 
     area = 0.
 

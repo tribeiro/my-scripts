@@ -1,0 +1,9 @@
+date:
+  mjd_start: 57822.0
+  ndays: 10
+  to_end: False
+  ref_survey: SPLUS
+
+surveys:
+  SPLUS:
+    sched_config: splus_cfg.yaml

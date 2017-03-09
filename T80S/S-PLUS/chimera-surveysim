@@ -1,0 +1,601 @@
+#!/usr/bin/env python
+
+################################################################################
+
+__author__ = 'Ribeiro, T.'
+
+################################################################################
+
+import sys
+import os
+import time
+import datetime as dt
+import shutil
+import re
+import yaml
+import numpy as np
+import ConfigParser
+from astropy.table import Table
+from sqlalchemy import (or_, and_, desc, asc)
+import inspect
+
+from chimera.core.cli import ChimeraCLI, action, ParameterType
+from chimera.core.site import datetimeFromJD
+from chimera.core.callback import callback
+from chimera.core.exceptions import printException, ObjectNotFoundException
+from chimera.util.output import blue, green, red
+from chimera.util.position import Position
+from chimera.util.coord import Coord
+
+from chimera_manager.core.constants import DEFAULT_PROGRAM_DATABASE, DEFAULT_ROBOBS_DATABASE
+from chimera_manager.controllers.scheduler.model import Session as RSession
+from chimera_manager.controllers.scheduler.model import (Projects, BlockPar, ObsBlock,
+                                                         Targets, ObservingLog,
+                                                         Program, AutoFocus, AutoFlat, PointVerify, Point, Expose)
+from chimera_manager.controllers.scheduler import algorithms
+from matplotlib.dates import DateFormatter
+
+schedAlgorithms = {}
+for name, obj in inspect.getmembers(algorithms):
+    if inspect.isclass(obj) and issubclass(obj, algorithms.BaseScheduleAlgorith):
+        schedAlgorithms[obj.id()] = obj
+
+actionDict = {'autofocus': AutoFocus,
+              'autoflat': AutoFlat,
+              'pointverify': PointVerify,
+              'point': Point,
+              'expose': Expose,
+              }
+
+
+################################################################################
+
+class SurveySim(ChimeraCLI):
+    ############################################################################
+
+    def __init__(self):
+        ChimeraCLI.__init__(self, "chimera-surveysim",
+                            "RobObs controller", 0.0, port=9010)
+
+        '''
+        A chimera script to simulate surveys on robobs database.
+        '''
+
+        self.addHelpGroup("ROBOBS", "RobObs")
+        self.addController(name="site",
+                           cls="Site",
+                           required=True,
+                           help="Observing site",
+                           helpGroup="OBSERVATORY")
+
+        self.addController(name="telescope",
+                           cls="telescope",
+                           required=False,
+                           help="Telescope to me used. It is used during queue processing for estimating slew time.",
+                           helpGroup="TELESCOPE")
+
+        self.addController(name="robobs",
+                           cls="RobObs",
+                           required=True,
+                           help="Robobs controller to be used",
+                           helpGroup="ROBOBS")
+
+        self.addHelpGroup("SCHEDULER", "Scheduler")
+        self.addParameters(dict(name="SURVEYCONFIG", long="survey-config", type='string',
+                                help="A yaml configuration file for scheduling the projects in the database.",
+                                metavar="PIDCONFIG",
+                                helpGroup="SCHEDULER"))
+
+        self.addHelpGroup("RUN", "Start/Stop/Monitor")
+
+    ############################################################################
+
+    @action(long="cleanQueue",
+            help="Delete all scheduled blocks from specified project.",
+            actionGroup="")
+    def cleanQueue(self, opt):
+
+        session = RSession()
+
+        if not opt.PID:
+            allpid = [p.pid for p in session.query(Projects)]
+            merr = red('*') + 'Specify project id (--pid). Available options are:'
+            for pid in allpid:
+                merr += '\n' + red('**') + '%s' % pid
+            self.err(merr)
+            session.commit()
+            return -1
+        else:
+            p = session.query(Projects).filter(Projects.pid == opt.PID).count()
+            if p == 0:
+                allpid = [p.pid for p in session.query(Projects)]
+                merr = red('*') + 'No project named %s on the database. Available options are:' % opt.PID
+                for pid in allpid:
+                    merr += '\n' + red('**') + '%s' % pid
+                self.err(merr)
+                session.commit()
+                return -1
+
+        self.out('-Deleting all scheduled observing blocks from project %s from the queue.' % opt.PID)
+
+        programs = session.query(Program).filter(Program.pid == opt.PID)
+
+        for p in programs:
+            self.out(red('--Deleting'))
+            self.out(red('---') + '%s' % p)
+            # for act in p.actions:
+            #     session.delete(act)
+            #     self.out( red('---')+'%s'%act)
+            session.delete(p)
+            self.out(red('--Done'))
+
+        session.commit()
+
+        sched_blocks = session.query(ObsBlock).filter(ObsBlock.pid == opt.PID,
+                                                      ObsBlock.scheduled == 1)
+
+        for sb in sched_blocks:
+            sb.scheduled = 0
+
+        for sched in schedAlgorithms:
+            schedAlgorithms[sched].clean(opt.PID)
+
+        session.commit()
+
+        return 0
+
+    ############################################################################
+
+    @action(long="makeQueue",
+            help="Select targets from specified project to be observed. ",
+            actionGroup="")
+    def makeQueue(self, opt):
+
+        session = RSession()
+
+        if not opt.PID:
+            allpid = [p.pid for p in session.query(Projects)]
+            merr = red('*') + 'Specify project id (--pid). Available options are:'
+            for pid in allpid:
+                merr += '\n' + red('**') + '%s' % pid
+            self.err(merr)
+            session.commit()
+            return -1
+        else:
+            p = session.query(Projects).filter(Projects.pid == opt.PID).count()
+            if p == 0:
+                allpid = [p.pid for p in session.query(Projects)]
+                merr = red('*') + 'No project named %s on the database. Available options are:' % opt.PID
+                for pid in allpid:
+                    merr += '\n' + red('**') + '%s' % pid
+                self.err(merr)
+                session.commit()
+                return -1
+
+        if self.checkQueue(opt.PID):
+            self.out(red(
+                '+') + 'Project already processed... Reprocessing a queue is a nasty job... Clean it and try again...')
+            session.commit()
+            return 0
+
+        pgrconfig = {}
+        if opt.PIDCONFIG is not None:
+            with open(opt.PIDCONFIG, 'r') as stream:
+                try:
+                    pgrconfig = yaml.load(stream)
+                except yaml.YAMLError as exc:
+                    self.exit(exc)
+
+        self.out('-Selecting targets from project %s' % opt.PID)
+
+        self.mktimes(opt)
+
+        obsStart = self.obsStart
+        obsEnd = self.obsEnd
+        lststart = self.lststart - 2.
+        lstend = self.lstend + 2.
+        remoteManager = self.robobs.getManager()
+        site = remoteManager.getProxy(remoteManager.getResourcesByClass("Site")[0])
+
+        self.out('-Observation start @ %s | LST = %4.1f h' % (str(obsStart)[:19], lststart))
+        self.out('-Observation end   @ %s | LST = %4.1f h' % (str(obsEnd)[:19], lstend))
+
+        obsStart = site.JD(obsStart)
+        obsEnd = site.JD(obsEnd)
+
+        ohh = int(np.floor((obsEnd - obsStart) * 24.))
+        omm = int(np.floor(((obsEnd - obsStart) * 24. - ohh) * 60.))
+        self.out('-Observing time: %02i:%02i h' % (ohh, omm))
+
+        # Look for suitable observing blocks for this night...
+        FLAG = opt.PID
+
+        ## Select all observing blocks from this project that where not observed
+        ## and are not scheduled for observations
+
+        targets = session.query(Targets)
+        for target in targets:
+            target.lst = self.lststart.H
+            # self.out('%s %.2f %.2f' % (target,target.targetRa,target.targetAH))
+        session.commit()
+        # targets = session.query(Targets).order_by(Targets.targetAH)
+        # for target in targets:
+        #     self.out('%s %.2f %.2f' % (target,target.targetRa,target.targetAH))
+
+        tList = None
+        if lststart < lstend:
+            tList = session.query(ObsBlock, BlockPar, Targets).filter(ObsBlock.pid == FLAG,
+                                                                      BlockPar.pid == FLAG,
+                                                                      ObsBlock.scheduled == False,
+                                                                      ObsBlock.completed == False,
+                                                                      Targets.targetRa > lststart,
+                                                                      Targets.targetRa < lstend).join(BlockPar).join(
+                Targets).order_by(desc(Targets.targetAH))
+        else:
+            tList = session.query(ObsBlock, BlockPar, Targets).filter(ObsBlock.pid == FLAG,
+                                                                      BlockPar.pid == FLAG,
+                                                                      ObsBlock.scheduled == False,
+                                                                      ObsBlock.completed == False,
+                                                                      or_(and_(Targets.targetRa > lststart,
+                                                                               Targets.targetRa < 24.),
+                                                                          and_(Targets.targetRa > 0.,
+                                                                               Targets.targetRa < lstend))).join(
+                Targets).order_by(desc(Targets.targetAH))
+
+        if len(tList[:]) == 0:
+            self.out(blue('+') + 'No targets available from this project this night...')
+            session.commit()
+            return -1
+
+        self.out('-Found %i suitable targets...' % (len(tList[:])))
+        for target in tList:
+            self.out(" - %s" % target[2])
+
+        schedAlgList = np.array([t[1].schedalgorith for t in tList])
+        uSAL = np.unique(schedAlgList)
+
+        self.out('-Found %i types of scheduling algorith...' % (len(uSAL)))
+        for i, sa_type in enumerate(uSAL):
+            self.out('--SA Type[%i] = %i' % (i + 1, sa_type))
+
+        for sAL in uSAL:
+
+            nquery = tList.filter(BlockPar.schedalgorith == sAL)
+
+            sched = schedAlgorithms[sAL]
+
+            # qFunction = algorithms.ScheduleFunction(sAL,
+            #                                         obsStart=obsStart,
+            #                                         obsEnd=obsEnd,
+            #                                         s=self,
+            #                                         query=nquery,
+            #                                         site=site)
+
+            obsTargets = sched.process(self.bestSlotLen(opt.PID),
+                                       obsStart=obsStart,
+                                       obsEnd=obsEnd,
+                                       query=nquery,
+                                       site=site,
+                                       config=pgrconfig)
+
+            # First schedule all
+            for bid in obsTargets:
+                if bid['blockid'] > 0:
+                    oblock = nquery.filter(ObsBlock.blockid == bid['blockid'])
+                    self.addObservation(oblock, bid['start'])
+
+            # Now mark as scheduled
+            for bid in obsTargets:
+                if bid['blockid'] > 0:
+                    oblock = nquery.filter(ObsBlock.blockid == bid['blockid'])
+                    for o in oblock:
+                        o[0].scheduled = True
+                    session.commit()
+
+        session.commit()
+
+    ############################################################################
+
+    @action(long="simulate",
+            help="Simulate survey based on information from configuration file.",
+            actionGroup="")
+    def simulateSurvey(self, opt):
+
+        with open(opt.SURVEYCONFIG, 'r') as stream:
+            survey_config = yaml.load(stream)
+
+        self.out('Date start: %.2f' % survey_config['date']['mjd_start'])
+        if survey_config['date']['to_end']:
+            self.out('Simulate entire survey using %s as reference.' % survey_config['date']['ref_survey'])
+        else:
+            self.out('Simulate %i nights.' % survey_config['date']['ndays'])
+
+        self.out('Found %i projects to simulate' % len(survey_config['surveys']))
+        for pid in survey_config['surveys'].keys():
+            self.out('\t - %s' % pid)
+            
+    ############################################################################
+
+    @action(long="processQueue",
+            help="Process queue like chimera will do during an observation.",
+            actionGroup="")
+    def processQueue(self, opt):
+
+        self.mktimes(opt)
+
+        site = self.site
+        telescope = self.telescope
+        obsStart = site.JD(self.obsStart) - 2400000.5
+        obsEnd = site.JD(self.obsEnd) - 2400000.5
+        lststart = self.lststart
+        lstend = self.lstend
+
+        otime = obsStart
+
+        appOpen = 0.
+        idle = 0.
+
+        # qExec = queue.QueueScheduler(site)
+
+        session = RSession()
+        telPos = None  # current telescope position
+
+        while otime < obsEnd:
+            # aP,aplen = self.getAlternateProgram(aprograms,time)
+            # if aplen < 0:
+            #    break
+            self.out('Requesting target @ %f' % otime, end='')
+            program_list = self.robobs.reshedule(otime)
+            if not program_list:
+                break
+            program = session.merge(program_list[0])
+            self.out('slew@: %s' % program.slewAt)
+
+            program = session.merge(program)
+            aplen = self.calcObsTime(program, 20.)
+
+            # while 0 <  aplen/86.4e3 < idleTime:
+            msg = ''
+            slewAt = float(program.slewAt)
+            _idle = slewAt - otime
+            # if _idle*24.*60.*60. < aplen:
+            #     slewAt = otime
+            #     _idle = 0.
+            # print slewAt,otime
+            stime = otime
+            if _idle > 1e-5:
+                msg += '[info: Program slew %.3fm in the future. waiting...]' % ((_idle) * 24. * 60.)
+                idle += _idle
+                stime += _idle
+            elif _idle < -1e-5:
+                msg += '[info: Program slew %.3fm in the past. Slewing now...]' % ((_idle) * 24. * 60.)
+
+            _idle = _idle if _idle > 0 else 0.
+            slewtime = 0.
+            target = session.query(Targets).filter(Targets.id == program.tid).first()
+            # check that target is at correct altitude.
+
+            targetPos = Position.fromRaDec(target.targetRa, target.targetDec)
+            if telPos:
+                adist = telPos.angsep(targetPos)
+                slewtime = np.float(adist.toAS()) / 60. / 60. / 86.4e3  # consider 1 arcmin / second
+            slewtime = slewtime if slewtime > _idle else 0  # if slewtime larger than idle time slewtime will be zero
+            msg += ' | slewtime = %.5fm' % (slewtime * 60. * 60.)
+            self.out('@ %.5f (%.5f): Acquiring %45s %s (len: %.2f)' % (otime, slewAt, program, msg, aplen))
+            log = ObservingLog(time=datetimeFromJD(stime + 2400000.5, ),
+                               tid=program.tid,
+                               name=program.name,
+                               priority=program.priority,
+                               action='Simulation: Acquisition Start')
+            session.add(log)
+            session.commit()
+
+            log = ObservingLog(time=datetimeFromJD(stime + (aplen / 86.4e3) + 2400000.5, ),
+                               tid=program.tid,
+                               name=program.name,
+                               priority=program.priority,
+                               action='Simulation: Acquisition End')
+            session.add(log)
+
+            dt = (aplen / 86.4e3) + slewtime + _idle
+            otime += dt
+
+            appOpen += aplen
+            program.finished = True
+            session.commit()
+
+            blockpar = session.merge(program_list[1])
+            self.out('%s: %i %s' % (blockpar, blockpar.schedalgorith, schedAlgorithms[blockpar.schedalgorith].name()))
+            remoteManager = self.robobs.getManager()
+
+            schedAlgorithms[blockpar.schedalgorith].observed(otime, program_list,
+                                                             site=remoteManager.getProxy(
+                                                                 remoteManager.getResourcesByClass("Site")[0]),
+                                                             soft=True)
+            telPos = targetPos
+            session.commit()
+
+        aprograms = session.query(Program).filter(Program.finished == True)
+
+        for ap in aprograms:
+            ap.finished = False
+
+        allpid = [p.pid for p in session.query(Projects)]
+
+        session.commit()
+        for sched in schedAlgorithms:
+            for pid in allpid:
+                schedAlgorithms[sched].soft_clean(pid)
+
+        session.commit()
+
+        self.out('@ %.4f: Idle for %.2fh' % (otime, (obsEnd - otime) * 24.))
+        idle += (obsEnd - otime)
+        self.out('@ %.4f: Night end' % obsEnd)
+        self.out('-Total idle time: %.2fh' % (idle * 24.))
+        self.out('-Total open shutter time: %.2fh' % (appOpen / 60. / 60.))
+
+    ############################################################################
+
+    def mktimes(self, opt):
+        # Determining start/end times
+
+        remoteManager = self.robobs.getManager()
+        site = remoteManager.getProxy(remoteManager.getResourcesByClass("Site")[0])
+
+        self.obsStart = site.sunset_twilight_end()
+        self.obsEnd = site.sunrise_twilight_begin(self.obsStart)
+
+        if opt.JDstart:
+            self.obsStart = datetimeFromJD(opt.JDstart)
+        elif opt.dstart:
+            day, hour = opt.dstart.split('-')
+            yy, mm, dd = [int(val) for val in day.split('/')]
+            hh, mi, ss = [int(val) for val in hour.split(':')]
+            self.obsStart = dt.datetime(yy, mm, dd, hh, mi, ss)
+
+        if opt.JDend:
+            self.obsEnd = datetimeFromJD(opt.JDend)
+        elif opt.dend:
+            day, hour = opt.dend.split('-')
+            yy, mm, dd = [int(val) for val in day.split('/')]
+            hh, mi, ss = [int(val) for val in hour.split(':')]
+            self.obsEnd = dt.datetime(yy, mm, dd, hh, mi, ss)
+
+        self.lststart = site.LST(self.obsStart).toH()
+        self.lstend = site.LST(self.obsEnd).toH()
+        self.lststart_deg = site.LST(self.obsStart).toD()
+        self.lstend_deg = site.LST(self.obsEnd).toD()
+        self.mjdStart = site.MJD(self.obsStart)
+        self.mjdEnd = site.MJD(self.obsEnd)
+
+    ############################################################################
+
+    def calcObsTime(self, program, rot=0.):
+        otime = 0.
+
+        session = RSession()
+        obs_block = session.query(ObsBlock).filter(ObsBlock.id == program.obsblock_id).first()
+        for ii, act in enumerate(obs_block.actions):
+            if act.__tablename__ == 'action_expose':
+                otime += (act.exptime + rot) * act.frames
+            elif act.__tablename__ == 'action_focus' and act.step > 0:
+                otime += 600.
+        return otime
+
+    ############################################################################
+
+    def checkQueue(self, PID):
+        '''Check if projet was already processed...
+            '''
+
+        session = RSession()
+
+        progs = session.query(Program).filter(Program.pid == PID).first()
+
+        if progs is not None:
+            session.commit()
+            return True
+
+        session.commit()
+        return False
+
+    ############################################################################
+
+    def bestSlotLen(self, pid):
+
+        # FIXME
+
+        # session = RSession()
+        #
+        # query = session.query(ObsBlock).filter(ObsBlock.pid == pid).filter(ObsBlock.blockid == blkid)
+        #
+        # # slen = 0
+        #
+        # tottime = 0.
+        #
+        # bid = -1
+        # for blk in query:
+        #     for blk_action in blk.actions:
+        #         # Todo: Add overheads: Pointing, autofocus, readout, filter,...
+        #         if blk_action.__tablename__ == 'action_expose':
+        #             tottime += blk_action.exptime * blk_action.frames
+        # session.commit()
+
+        return 15.
+
+    ############################################################################
+
+    def addObservation(self, block, obstime):
+
+        session = RSession()
+
+        self.out('%s ' % block[:][0][0])
+
+        programs = []
+
+        for subblock in block:
+            objname = subblock[2].name
+            pquery = session.query(Projects).filter(Projects.pid == subblock[0].pid)
+            self.out('\t @%.3f - %s' % (obstime - 2400000.5, subblock[2]))
+            program = Program(tid=subblock[0].objid,
+                              name=objname,
+                              pi='',
+                              priority=pquery[0].priority,
+                              slewAt=obstime - 2400000.5,
+                              pid=subblock[0].pid,
+                              obsblock_id=subblock[0].id,
+                              blockpar_id=subblock[1].id
+                              )  # ,exposeAt=obstime)
+            # for blk_actions in subblock[0].actions:
+            #     program.actions.append(blk_actions)
+
+            programs.append(program)
+
+            sched_add = schedAlgorithms[subblock[1].schedalgorith]
+            sched_add.add(subblock)
+
+        session.add_all(programs)
+        session.commit()
+
+        # algorith specific process
+
+    def altitude(self, ra, dec, start, end, tdelta=0.5, minA=10.):
+
+        site = self.site
+
+        coords = Position.fromRaDec(ra,
+                                    dec)
+
+        timevec = np.array([])
+        amvec = np.array([])
+
+        time = start
+        while time < end:
+            # for time in range(start,end,dt.timedelta(hours=tdelta)):
+            # print type(time)
+            lst = site.LST_inRads(time)
+            alt = float(site.raDecToAltAz(coords, lst).alt)
+            # airmass = 1./np.cos(np.pi/2.-alt*np.pi/180.)
+            if minA < alt <= 90.:
+                timevec = np.append(timevec, time)
+                amvec = np.append(amvec, alt)
+            time += dt.timedelta(hours=tdelta)
+
+        return timevec, amvec
+
+
+################################################################################
+
+def main():
+    cli = SurveySim()
+    cli.run(sys.argv)
+    cli.wait()
+
+
+################################################################################
+
+if __name__ == '__main__':
+    main()
+
+################################################################################

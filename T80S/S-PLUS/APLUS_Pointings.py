@@ -326,19 +326,42 @@ def check_inside_survey(ra,dec,surveyLimits):
     '''
 
     is_inside = False
-    for l in surveyLimits:
-        if (l['ra_min'] <= ra <= l['ra_max']) and (l['dec_min'] <= dec <= l['dec_max']):
-             is_inside = True
-             break
-
-    return is_inside
+    try:
+        if len(ra) != len(dec):
+            raise TypeError("RA and Dec vectors should have the same size.")
+        is_inside = np.zeros_like(ra) == 1
+        for l in surveyLimits:
+            is_inside = np.bitwise_or(is_inside,
+                                       np.bitwise_and(np.bitwise_and(ra >= l['ra_min'],
+                                                                     ra <= l['ra_max']),
+                                                      np.bitwise_and(dec >= l['dec_min'],
+                                                                     dec <= l['dec_max'])))
+    except:
+        for l in surveyLimits:
+            if (l['ra_min'] <= ra <= l['ra_max']) and (l['dec_min'] <= dec <= l['dec_max']):
+                 is_inside = True
+                 break
+    finally:
+        return is_inside
 
 def check_inside_survey_gal(l,b,surveyLimits):
     is_inside = False
-    for reg in surveyLimits:
-        if (reg['l_min'] <= l <= reg['l_max']) and (reg['b_min'] <= b <= reg['b_max']):
-            is_inside =True
-            break
+    try:
+        if len(l) != len(b):
+            raise TypeError("RA and Dec vectors should have the same size.")
+        is_inside = np.zeros_like(l) == 1
+        for reg in surveyLimits:
+            is_inside = np.bitwise_or(is_inside,
+                                       np.bitwise_and(np.bitwise_and(l >= reg['l_min'],
+                                                                     l <= reg['l_max']),
+                                                      np.bitwise_and(b >= reg['b_min'],
+                                                                     b <= reg['b_max'])))
+    except:
+
+        for reg in surveyLimits:
+            if (reg['l_min'] <= l <= reg['l_max']) and (reg['b_min'] <= b <= reg['b_max']):
+                is_inside =True
+                break
     return is_inside
 
 def measure_jpas_area(npoints=1e7):
